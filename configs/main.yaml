@@ -1,8 +1,8 @@
 defaults:
- - _self_
- - dataset: idsprites
- - model: regressor
- - strategy: naive
+  - _self_
+  - dataset: idsprites
+  - model: regressor
+  - strategy: naive
 
 project:
   name: disco
