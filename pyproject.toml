@@ -14,15 +14,24 @@ requires-python = ">=3.10"
 dependencies = [
     "hydra-core",
     "lightning",
+    "lightning-bolts",
     "matplotlib",
     "numba",
+    "numpy",
+    "omegaconf",
     "opencv-python",
+    "pillow",
     "scipy",
     "scikit-learn",
     "timm",
     "torch",
     "torchvision",
+    "tqdm",
+    "wandb",
 ]
+
+[project.optional-dependencies]
+dev = ["memray", "pytest", "torchmetrics"]
 
 [tool.hatch.build]
 include = ["disco"]
