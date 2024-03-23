@@ -130,7 +130,6 @@ class ContrastiveClassifier(ContinualModule):
             features2: A batch of features.
             labels1: A batch of shape labels.
             labels2: A batch of shape labels.
-            labels: A batch of shape labels.
         """
         features1, labels1 = self.balance_batch(features1, labels1)
         features2, labels2 = self.balance_batch(features2, labels2)
@@ -193,6 +192,8 @@ class ContrastiveClassifier(ContinualModule):
             optimizer = torch.optim.Adam(params, lr=self.hparams.lr)
         elif self.hparams.optimizer == "lars":
             optimizer = LARS(params, lr=self.hparams.lr)
+        else:
+            raise ValueError(f"Unsupported optimizer '{self.hparams.optimizer}'")
 
         if self.hparams.schedule_lr:
             return {

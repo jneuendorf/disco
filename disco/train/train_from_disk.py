@@ -21,12 +21,13 @@ from torch.utils.data import DataLoader
 from torchvision.io import read_image
 from torchvision.transforms import ToTensor, Resize, Compose
 
+from disco.data import ContinualBenchmarkDisk
 from disco.lightning.callbacks import (
     LoggingCallback,
     MetricsCallback,
     VisualizationCallback,
 )
-from disco.data import ContinualBenchmarkDisk
+from disco.train.util import create_loaders
 
 seed = 42
 torch.manual_seed(seed)
@@ -58,6 +59,7 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Unknown target: {target}.")
 
 
+# TODO: Refactor
 def train_ours(cfg):
     """Train our model in a continual learning setting."""
     setup_wandb(cfg)
@@ -73,7 +75,13 @@ def train_ours(cfg):
         if cfg.training.reset_model:
             model = instantiate(cfg.model)
         model.task_id = task
-        train_loader, val_loader, test_loader = create_loaders(cfg, datasets)
+        train_loader, val_loader, test_loader = create_loaders(
+            cfg,
+            datasets,
+            pin_memory=True,
+            drop_last=[True, True, False],
+            shuffle=[True, False, True],  # shuffle 'test' for vis
+        )
 
         for exemplar in task_exemplars:
             model.add_exemplar(exemplar)
@@ -156,35 +164,6 @@ def load_random_images(path, num_imgs: int = 25):
         image_path = np.random.choice(list(val_dir.glob("*.png")))
         images.append(read_img_to_np(image_path))
     return np.stack(images)
-
-
-def create_loaders(cfg, datasets):
-    """Create the data loaders."""
-    train_dataset, val_dataset, test_dataset = datasets
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=cfg.dataset.batch_size,
-        num_workers=cfg.dataset.num_workers,
-        shuffle=True,
-        drop_last=True,
-        pin_memory=True,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=cfg.dataset.batch_size,
-        num_workers=cfg.dataset.num_workers,
-        drop_last=True,
-        pin_memory=True,
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=cfg.dataset.batch_size,
-        num_workers=cfg.dataset.num_workers,
-        shuffle=True,  # shuffle for vis
-        drop_last=False,
-        pin_memory=True,
-    )
-    return train_loader, val_loader, test_loader
 
 
 def train_baseline(cfg):

@@ -19,7 +19,6 @@ from avalanche.training.plugins import EvaluationPlugin
 from hydra.utils import call, get_object, instantiate
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader
 
 from disco.data import (
     ContinualBenchmark,
@@ -32,6 +31,7 @@ from disco.lightning.callbacks import (
     MetricsCallback,
     VisualizationCallback,
 )
+from disco.train.util import create_loaders
 
 torch.set_float32_matmul_precision("high")
 OmegaConf.register_new_resolver("eval", eval)
@@ -78,6 +78,7 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Unknown target: {target}.")
 
 
+# TODO: Refactor
 def train_ours_continually(cfg, benchmark, trainer):
     """Train our model in a continual learning setting."""
     model = instantiate(cfg.model)
@@ -85,7 +86,12 @@ def train_ours_continually(cfg, benchmark, trainer):
         if cfg.training.reset_model:
             model = instantiate(cfg.model)
         model.task_id = task_id
-        train_loader, val_loader, test_loader = create_loaders(cfg, datasets)
+        train_loader, val_loader, test_loader = create_loaders(
+            cfg,
+            datasets,
+            drop_last=True,
+            shuffle=[True, False, True],  # shuffle 'test' for vis
+        )
 
         for exemplar in task_exemplars:
             model.add_exemplar(exemplar)
@@ -101,32 +107,6 @@ def train_ours_continually(cfg, benchmark, trainer):
             trainer.test(model, test_loader)
         trainer.fit_loop.max_epochs += cfg.trainer.max_epochs
     trainer.test(model, test_loader)
-
-
-def create_loaders(cfg, datasets):
-    """Create the data loaders."""
-    train_dataset, val_dataset, test_dataset = datasets
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=cfg.dataset.batch_size,
-        num_workers=cfg.dataset.num_workers,
-        shuffle=True,
-        drop_last=True,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=cfg.dataset.batch_size,
-        num_workers=cfg.dataset.num_workers,
-        drop_last=True,
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=cfg.dataset.batch_size,
-        num_workers=cfg.dataset.num_workers,
-        shuffle=True,  # shuffle for vis
-        drop_last=True,
-    )
-    return train_loader, val_loader, test_loader
 
 
 def train_baseline_continually(cfg, benchmark):

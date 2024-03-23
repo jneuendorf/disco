@@ -38,4 +38,4 @@ else
     python -m pip install torch torchvision torchaudio
 fi
 
-python $HOME/disco/disco/train_from_disk.py $additional_args
+python $HOME/disco/disco/train/train_from_disk.py $additional_args

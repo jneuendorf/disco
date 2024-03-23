@@ -28,4 +28,4 @@ export HYDRA_FULL_ERROR=1
 
 python -m pip install torch torchvision torchaudio
 
-python $HOME/disco/disco/train.py $additional_args
+python $HOME/disco/disco/train/train.py $additional_args

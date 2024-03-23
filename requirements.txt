@@ -1,20 +1,22 @@
-avalanche-lib
-hydra-core
-imageio
-lightning
-lightning-bolts
-matplotlib
-memray
-numba
-numpy
-omegaconf
-opencv-python
-pillow
-pytest
-scipy
-scikit-learn
-timm
-torch
-torchmetrics
-tqdm
-wandb
+# AS OF PEP 518 THE DEPENDENCIES ARE READ FROM pyproject.toml INSTEAD THIS FILE IF POSSIBLE.
+
+# avalanche-lib
+# hydra-core
+# imageio
+# lightning
+# lightning-bolts
+# matplotlib
+# memray
+# numba
+# numpy
+# omegaconf
+# opencv-python
+# pillow
+# pytest
+# scipy
+# scikit-learn
+# timm
+# torch
+# torchmetrics
+# tqdm
+# wandb
