@@ -10,8 +10,9 @@ from pl_bolts.optimizers.lars import LARS
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from timm import create_model, list_models
 
-from disco.data import Latents
 from disco.models.blocks import Decoder
+from idsprites import Factors
+from idsprites.types import Exemplar
 
 
 class ContinualModule(pl.LightningModule):
@@ -55,11 +56,11 @@ class ContinualModule(pl.LightningModule):
         """Perform a test step."""
         return self._step(batch)
 
-    def add_exemplar(self, exemplar):
+    def add_exemplar(self, exemplar: Exemplar):
         """Add an exemplar to the buffer."""
         self._buffer.append(exemplar)
 
-    def get_current_task_exemplars(self):
+    def get_current_task_exemplars(self) -> list[Exemplar]:
         """Get the exemplars for the current task."""
         start = self._shapes_per_task * self.task_id
         end = self._shapes_per_task * (self.task_id + 1)
@@ -74,7 +75,7 @@ class ContinualModule(pl.LightningModule):
 
     def _unstack_factors(self, stacked_factors):
         """Unstack the factors."""
-        return Latents(
+        return Factors(
             shape=None,
             shape_id=None,
             color=None,

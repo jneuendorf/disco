@@ -8,8 +8,13 @@ from disco.data import FileDataset
 from torch.utils.data import ConcatDataset
 import numpy as np
 
+from disco.train.util import read_img_to_np
+from idsprites.continual_benchmark import BaseContinualBenchmark
+from idsprites.types import Exemplar
 
-class ContinualBenchmarkDisk:
+
+class ContinualBenchmarkDisk(
+    BaseContinualBenchmark[FileDataset, FileDataset, FileDataset | ConcatDataset]):
     def __init__(
         self,
         path: Union[Path, str],
@@ -40,7 +45,7 @@ class ContinualBenchmarkDisk:
 
             yield (train, val, test), task_exemplars
 
-    def load_exemplars(self, task_dir):
+    def load_exemplars(self, task_dir) -> list[Exemplar]:
         """Load the current task exemplars from a given directory."""
         paths = (task_dir / "exemplars").glob("exemplar_*.png")
-        return [np.array(read_image(str(path)) / 255.0) for path in paths]
+        return [read_img_to_np(path) for path in paths]

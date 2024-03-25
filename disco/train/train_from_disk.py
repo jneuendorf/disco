@@ -5,29 +5,27 @@ import os
 import random
 from pathlib import Path
 from time import time
-from typing import Union
 
 import hydra
 import numpy as np
 import torch
 import wandb
 from avalanche.benchmarks.generators import paths_benchmark
-from avalanche.evaluation.metrics import accuracy_metrics
-from avalanche.training.plugins import EvaluationPlugin
 from hydra.utils import call, get_object, instantiate
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
-from torchvision.io import read_image
 from torchvision.transforms import ToTensor, Resize, Compose
 
+from avalanche.evaluation.metrics import accuracy_metrics
+from avalanche.training.plugins import EvaluationPlugin
 from disco.data import ContinualBenchmarkDisk
 from disco.lightning.callbacks import (
     LoggingCallback,
     MetricsCallback,
     VisualizationCallback,
 )
-from disco.train.util import create_loaders
+from disco.train.util import read_img_to_np, train_continually
 
 seed = 42
 torch.manual_seed(seed)
@@ -35,16 +33,6 @@ np.random.seed(seed)
 random.seed(seed)
 
 OmegaConf.register_new_resolver("eval", eval)
-
-
-def read_img_to_np(path: Union[Path, str]):
-    """Read an image and normalize it to [0, 1].
-    Args:
-        path: The path to the image.
-    Returns:
-        The image as a numpy array.
-    """
-    return np.array(read_image(str(path)) / 255.0)
 
 
 @hydra.main(config_path="../configs", config_name="main", version_base=None)
@@ -59,7 +47,6 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Unknown target: {target}.")
 
 
-# TODO: Refactor
 def train_ours(cfg):
     """Train our model in a continual learning setting."""
     setup_wandb(cfg)
@@ -70,33 +57,12 @@ def train_ours(cfg):
         path=cfg.dataset.path,
         accumulate_test_set=cfg.dataset.accumulate_test_set,
     )
-    model = instantiate(cfg.model)
-    for task, (datasets, task_exemplars) in enumerate(benchmark):
-        if cfg.training.reset_model:
-            model = instantiate(cfg.model)
-        model.task_id = task
-        train_loader, val_loader, test_loader = create_loaders(
-            cfg,
-            datasets,
-            pin_memory=True,
-            drop_last=[True, True, False],
-            shuffle=[True, False, True],  # shuffle 'test' for vis
-        )
 
-        for exemplar in task_exemplars:
-            model.add_exemplar(exemplar)
-
-        if cfg.training.validate:
-            trainer.fit(model, train_loader, val_loader)
-        else:
-            trainer.fit(model, train_loader)
-        if (
-            not cfg.training.test_once
-            and task % int(cfg.training.test_every_n_tasks) == 0
-        ):
-            trainer.test(model, test_loader)
-        trainer.fit_loop.max_epochs += cfg.trainer.max_epochs
-    trainer.test(model, test_loader)
+    train_continually(cfg, benchmark, trainer, loader_kwargs=dict(
+        pin_memory=True,
+        drop_last=[True, True, False],
+        shuffle=[True, False, True],  # shuffle 'test' for vis
+    ))
 
 
 def setup_wandb(cfg):

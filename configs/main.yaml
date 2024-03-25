@@ -30,7 +30,7 @@ buffer:
   mem_size: 200
 
 trainer:
-  _target_: lightning.pytorch.Trainer
+  _target_: lightning.pytorch.Trainer  # == lightning.Trainer
   default_root_dir: ${oc.env:WORK}/${project.name}/lightning
   enable_checkpointing: false
   enable_progress_bar: false

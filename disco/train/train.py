@@ -2,41 +2,44 @@
 
 import inspect
 import os
+from operator import attrgetter
 from pathlib import Path
 
 import hydra
 import numpy as np
 import torch
 import wandb
-from avalanche.benchmarks.scenarios.generic_benchmark_creation import (
-    LazyStreamDefinition,
-    create_lazy_generic_benchmark,
-)
-from avalanche.benchmarks.utils import make_classification_dataset
-from avalanche.evaluation.metrics import accuracy_metrics, loss_metrics
-from avalanche.logging import WandBLogger
-from avalanche.training.plugins import EvaluationPlugin
 from hydra.utils import call, get_object, instantiate
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from omegaconf import DictConfig, OmegaConf
 
-from disco.data import (
-    ContinualBenchmark,
-    ContinualBenchmarkRehearsal,
-    InfiniteDSprites,
-    Latents,
+from avalanche.benchmarks.scenarios import (
+    LazyStreamDefinition,
+    create_lazy_generic_benchmark,
 )
+from avalanche.benchmarks.utils import as_classification_dataset, TransformGroups
+from avalanche.evaluation.metrics import accuracy_metrics, loss_metrics
+from avalanche.logging import WandBLogger
+from avalanche.training.plugins import EvaluationPlugin
 from disco.lightning.callbacks import (
     LoggingCallback,
     MetricsCallback,
     VisualizationCallback,
 )
-from disco.train.util import create_loaders
+from disco.train.util import train_continually
+from idsprites import ContinualBenchmarkRehearsal, ContinualBenchmark
+from idsprites.continual_benchmark import BaseContinualBenchmark
+from idsprites.infinite_dsprites import Factors, InfiniteDSprites
+from idsprites.types import Shape
 
 torch.set_float32_matmul_precision("high")
 OmegaConf.register_new_resolver("eval", eval)
 
 
+# TODO: Infer types from yaml files -> structured configs
+#  https://hydra.cc/docs/1.1/tutorials/structured_config/intro/
+#  https://pypi.org/project/yaml2pyclass/
+#  https://pypi.org/project/yamldataclassconfig/
 @hydra.main(config_path="../configs", config_name="main", version_base=None)
 def train(cfg: DictConfig) -> None:
     """Train the model in a continual learning setting."""
@@ -78,53 +81,39 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Unknown target: {target}.")
 
 
-# TODO: Refactor
-def train_ours_continually(cfg, benchmark, trainer):
+def train_ours_continually(cfg, benchmark: BaseContinualBenchmark, trainer):
     """Train our model in a continual learning setting."""
-    model = instantiate(cfg.model)
-    for task_id, (datasets, task_exemplars) in enumerate(benchmark):
-        if cfg.training.reset_model:
-            model = instantiate(cfg.model)
-        model.task_id = task_id
-        train_loader, val_loader, test_loader = create_loaders(
-            cfg,
-            datasets,
-            drop_last=True,
-            shuffle=[True, False, True],  # shuffle 'test' for vis
-        )
-
-        for exemplar in task_exemplars:
-            model.add_exemplar(exemplar)
-
-        if cfg.training.validate:
-            trainer.fit(model, train_loader, val_loader)
-        else:
-            trainer.fit(model, train_loader)
-        if (
-            not cfg.training.test_once
-            and task_id % cfg.training.test_every_n_tasks == 0
-        ):
-            trainer.test(model, test_loader)
-        trainer.fit_loop.max_epochs += cfg.trainer.max_epochs
-    trainer.test(model, test_loader)
+    train_continually(cfg, benchmark, trainer, loader_kwargs=dict(
+        drop_last=True,
+        shuffle=[True, False, True],  # shuffle 'test' for vis
+    ))
 
 
-def train_baseline_continually(cfg, benchmark):
+def train_baseline_continually(cfg, benchmark: ContinualBenchmark):
     """Train a standard continual learning baseline using Avalanche."""
     model = call(cfg.model)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     wandb.run.define_metric("*", step_metric="Step", step_sync=True)
+    get_shape_id = attrgetter('shape_id')
     train_generator = (
-        make_classification_dataset(
+        # make_classification_dataset(
+        #     dataset=datasets[0],
+        #     target_transform=lambda y: y.shape_id,
+        # )
+        as_classification_dataset(
             dataset=datasets[0],
-            target_transform=lambda y: y.shape_id,
+            transform_groups=TransformGroups.create(
+                target_transform=get_shape_id,
+            ),
         )
         for datasets, _ in benchmark
     )
     test_generator = (
-        make_classification_dataset(
+        as_classification_dataset(
             dataset=datasets[2],
-            target_transform=lambda y: y.shape_id,
+            transform_groups=TransformGroups.create(
+                target_transform=get_shape_id,
+            ),
         )
         for datasets, _ in benchmark
     )
@@ -192,14 +181,14 @@ def train_baseline_continually(cfg, benchmark):
             strategy.eval(test_experience)
 
 
-def generate_canonical_images(shapes, img_size: int):
+def generate_canonical_images(shapes, img_size: int) -> list[Shape]:
     """Generate a batch of exemplars for training and visualization."""
     dataset = InfiniteDSprites(
         img_size=img_size,
     )
     return [
         dataset.draw(
-            Latents(
+            Factors(
                 color=(1.0, 1.0, 1.0),
                 shape=shape,
                 shape_id=None,
@@ -229,7 +218,7 @@ def generate_random_images(
         position_x_range=position_x_range,
         position_y_range=position_y_range,
     )
-    return [dataset.draw(dataset.sample_latents()) for _ in range(num_imgs)]
+    return [dataset.draw(dataset.sample_factors()) for _ in range(num_imgs)]
 
 
 def build_callbacks(cfg: DictConfig, canonical_images: list, random_images: list):

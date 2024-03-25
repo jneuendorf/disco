@@ -1,10 +1,10 @@
 name: idsprites
-path: ${oc.env:WORK}/datasets/idsprites
+path: ${oc.env:PWD}/datasets/idsprites
 batch_size: 256
-factor_resolution: 8
-img_size: 256
+factor_resolution: 5
+img_size: 128
 num_channels: 3
 num_workers: 8
-shapes_per_task: 10
+shapes_per_task: 5
 accumulate_test_set: true
-tasks: 1000
+tasks: 4
