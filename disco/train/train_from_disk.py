@@ -10,7 +10,7 @@ import hydra
 import numpy as np
 import torch
 import wandb
-from avalanche.benchmarks.generators import paths_benchmark
+from avalanche.benchmarks import paths_benchmark
 from hydra.utils import call, get_object, instantiate
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from omegaconf import DictConfig, OmegaConf

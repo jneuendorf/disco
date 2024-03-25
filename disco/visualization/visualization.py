@@ -12,10 +12,10 @@ import PIL
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 
-from disco.data import (
+from idsprites import (
     InfiniteDSprites,
     InfiniteDSpritesAnalogies,
-    Latents,
+    Factors,
 )
 
 repo_root = Path(__file__).parent.parent.parent
@@ -47,6 +47,7 @@ def draw_batch(
         path: The path to save the image to
         fig_height: The height of the figure in inches
         num_images: The maximum number of images to show
+        save: Whether to save the image
         show: Whether to show the image
     Returns:
         None
@@ -188,8 +189,8 @@ def draw_shapes(
         fig_height: The height of the figure in inches
         img_size: The size of the image in pixels
         frame_color: The color of the frame
-        fg_color: The color of the shape
-        bg_color: The color of the background plot area
+        background_color: The color of the background plot area
+        orientation_marker_color: The color of the orientation marker
         seed: The random seed to use
         fill_shape: Whether to fill the shape or just draw the outline
         debug: Whether to draw additional debug info
@@ -220,8 +221,8 @@ def draw_shapes(
         ax.axis("off")
         if fill_shape:
             if canonical:
-                latents = Latents(
-                    color=dataset.sample_latents().color,
+                latents = Factors(
+                    color=dataset.sample_factors().color,
                     shape=shape,
                     shape_id=None,
                     scale=1.0,
@@ -230,11 +231,11 @@ def draw_shapes(
                     position_y=0.5,
                 )
             else:
-                latents = dataset.sample_latents().replace(shape=shape)
+                latents = dataset.sample_factors().replace(shape=shape)
             img = dataset.draw(latents, channels_first=False, debug=debug)
             ax.imshow(img, cmap="Greys_r", aspect="equal")
         else:
-            ax.plot(shape[0], shape[1], color=dataset.sample_latents().color)
+            ax.plot(shape[0], shape[1], color=dataset.sample_factors().color)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(path)
@@ -285,7 +286,7 @@ def draw_shapes_animated(
         orientation_marker_color=orientation_marker_color,
     )
     shapes = [dataset.generate_shape() for _ in range(nrows * ncols)]
-    colors = [dataset.sample_latents().color for _ in range(nrows * ncols)]
+    colors = [dataset.sample_factors().color for _ in range(nrows * ncols)]
     if factor is None:
         factors = generate_multi_factor_sequence(dataset)
     else:
@@ -295,7 +296,7 @@ def draw_shapes_animated(
     frames = [
         [
             dataset.draw(
-                Latents(
+                Factors(
                     color=color,
                     shape=shape,
                     shape_id=None,
@@ -398,7 +399,9 @@ def draw_shape_interpolation(
         ncols: The number of columns in the grid
         fig_height: The height of the figure in inches
         img_size: The size of the image in pixels
-        bg_color: The color of the background plot area
+        frame_color: The color of the frame
+        background_color: The color of the background plot area
+        orientation_marker_color: The color of the orientation marker
         num_shapes: The number of shapes to interpolate between
         duration_per_shape: The number of seconds per shape transition
         fps: The number of frames per second
@@ -412,7 +415,7 @@ def draw_shape_interpolation(
         orientation_marker_color=orientation_marker_color,
     )
     colors = [
-        [dataset.sample_latents().color for _ in range(num_shapes)]
+        [dataset.sample_factors().color for _ in range(num_shapes)]
         for _ in range(nrows * ncols)
     ]
     shapes = [
@@ -425,7 +428,7 @@ def draw_shape_interpolation(
     frames = [
         [
             dataset.draw(
-                Latents(
+                Factors(
                     color=color,
                     shape=shape,
                     shape_id=None,
@@ -491,11 +494,11 @@ def draw_orientation_normalization(
         orientation_range=np.linspace(0.2 * np.pi, 1.8 * np.pi, 32),
     )
 
-    start_latents = [dataset.sample_latents() for _ in range(num_shapes)]
+    start_latents = [dataset.sample_factors() for _ in range(num_shapes)]
     sequence = []
     for latent in start_latents:
         latents = [
-            Latents(
+            Factors(
                 color=latent.color,
                 shape=latent.shape,
                 shape_id=None,
@@ -598,16 +601,17 @@ def draw_hard_analogy_task(
 ):
     """Draw an example of the hard analogy task.
     Args:
+        path: The path to the hard analogy image.
         fig_height: The height of the figure in inches.
     Returns:
         None
     """
     dataset = InfiniteDSprites(img_size=256)
-    latents_reference_source = dataset.sample_latents()
-    latents_reference_target = dataset.sample_latents()._replace(
+    latents_reference_source = dataset.sample_factors()
+    latents_reference_target = dataset.sample_factors()._replace(
         shape=latents_reference_source.shape
     )
-    latents_query_source = dataset.sample_latents()
+    latents_query_source = dataset.sample_factors()
     latents_query_target = latents_query_source
 
     for latent in ["scale", "orientation", "position_x", "position_y"]:
