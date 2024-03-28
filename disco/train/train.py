@@ -40,7 +40,7 @@ OmegaConf.register_new_resolver("eval", eval)
 #  https://hydra.cc/docs/1.1/tutorials/structured_config/intro/
 #  https://pypi.org/project/yaml2pyclass/
 #  https://pypi.org/project/yamldataclassconfig/
-@hydra.main(config_path="../configs", config_name="main", version_base=None)
+@hydra.main(config_path="../../configs", config_name="main", version_base=None)
 def train(cfg: DictConfig) -> None:
     """Train the model in a continual learning setting."""
     config = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)

@@ -7,9 +7,11 @@ defaults:
 project:
   name: disco
 
+output_dir: ${oc.env:WORK}/${project.name}
+
 hydra:
   run:
-    dir: ${oc.env:WORK}/${project.name}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ${output_dir}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 training:
   strategy: naive
@@ -30,8 +32,8 @@ buffer:
   mem_size: 200
 
 trainer:
-  _target_: lightning.pytorch.Trainer  # == lightning.Trainer
-  default_root_dir: ${oc.env:WORK}/${project.name}/lightning
+  _target_: lightning.Trainer
+  default_root_dir: ${output_dir}/lightning
   enable_checkpointing: false
   enable_progress_bar: false
   max_epochs: ${training.epochs_per_task}
@@ -39,14 +41,15 @@ trainer:
   logger: ${wandb}
   strategy: auto
   accumulate_grad_batches: 1
-  devices: -1
+#  accelerator: auto  # "cpu", "gpu", "tpu", "ipu", "hpu", "mps", "auto"
+#  devices: -1
   num_nodes: 1
   precision: 32
   profiler: null
 
 wandb:
   _target_: lightning.pytorch.loggers.WandbLogger
-  save_dir: ${oc.env:WORK}/${project.name}/wandb
+  save_dir: ${output_dir}/wandb
   project: ${project.name}
   group: null
   mode: online

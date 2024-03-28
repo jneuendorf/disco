@@ -35,7 +35,7 @@ random.seed(seed)
 OmegaConf.register_new_resolver("eval", eval)
 
 
-@hydra.main(config_path="../configs", config_name="main", version_base=None)
+@hydra.main(config_path="../../configs", config_name="main", version_base=None)
 def train(cfg: DictConfig) -> None:
     """Train the model in a continual learning setting."""
     target = get_object(cfg.model._target_)
