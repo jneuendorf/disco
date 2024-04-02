@@ -10,13 +10,13 @@ import hydra
 import numpy as np
 import torch
 import wandb
-from avalanche.benchmarks import paths_benchmark
 from hydra.utils import call, get_object, instantiate
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor, Resize, Compose
 
+from avalanche.benchmarks import paths_benchmark
 from avalanche.evaluation.metrics import accuracy_metrics
 from avalanche.training.plugins import EvaluationPlugin
 from disco.data import ContinualBenchmarkDisk
@@ -90,7 +90,7 @@ def build_callbacks(cfg: DictConfig):
             ModelCheckpoint(
                 dirpath=Path(cfg.trainer.default_root_dir) / job_id,
                 every_n_epochs=cfg.training.checkpoint_every_n_tasks
-                * cfg.training.epochs_per_task,
+                               * cfg.training.epochs_per_task,
                 save_top_k=-1,
                 save_weights_only=True,
             )
@@ -164,7 +164,8 @@ def test_baseline(strategy, current_task, cfg):
     strategy.model.eval()
     transform = Resize((224, 224), antialias=True)
     datasets = [
-        FileDataset(Path(cfg.dataset.path) / f"task_{task+1}/test", transform=transform)
+        FileDataset(Path(cfg.dataset.path) / f"task_{task + 1}/test",
+                    transform=transform)
         for task in range(current_task + 1)
     ]
     dataset = torch.utils.data.ConcatDataset(datasets)
