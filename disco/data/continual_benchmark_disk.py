@@ -14,7 +14,8 @@ from idsprites.types import Exemplar
 
 
 class ContinualBenchmarkDisk(
-    BaseContinualBenchmark[FileDataset, FileDataset, FileDataset | ConcatDataset]):
+    BaseContinualBenchmark[FileDataset, FileDataset, FileDataset | ConcatDataset],
+):
     def __init__(
         self,
         path: Union[Path, str],

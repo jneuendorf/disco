@@ -18,9 +18,11 @@ class FileDataset(Dataset[ImgFactorsTup]):
         self.transform = transform
         self.target_transform = target_transform
         factors = np.load(self.path / "factors.npz", allow_pickle=True)
+        # Turn dict of lists into list of dicts.
+        # Opposite of idsprites.io.Task.write_split
         factors = [
             dict(zip(factors, value)) for value in zip(*factors.values())
-        ]  # turn dict of lists into list of dicts
+        ]
         self.data = [ids.Factors(**factors) for factors in factors]
         self.shapes = np.load(self.path / "../shapes.npy", allow_pickle=True)
 

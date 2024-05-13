@@ -1,22 +1,36 @@
 """Lightning modules for the models."""
-
-from typing import Optional
+from abc import abstractmethod, ABC
+from collections.abc import Callable
+from typing import Optional, TypedDict, Any, Generic, TypeVar
 
 import lightning.pytorch as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from pl_bolts.optimizers.lars import LARS
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from timm import create_model, list_models
+from torch import Tensor
+from typing_extensions import override
 
 from disco.models.blocks import Decoder
 from idsprites import Factors
+from idsprites.infinite_dsprites import TensorFactors
 from idsprites.types import Exemplar
 
+T = TypeVar('T')
 
-class ContinualModule(pl.LightningModule):
+
+class StepResult(TypedDict, total=False):
+    loss: Tensor
+    accuracy: Tensor
+
+
+class ContinualModule(pl.LightningModule, Generic[T], ABC):
     """A base class for continual learning modules."""
+
+    task_id: int | None
 
     def __init__(
         self,
@@ -28,36 +42,48 @@ class ContinualModule(pl.LightningModule):
         self.factor_names = ["scale", "orientation", "position_x", "position_y"]
         self.num_factors = len(self.factor_names)
 
-        self._task_id = None
+        self.task_id = None
         self._shapes_per_task = shapes_per_task
         self._buffer = []
 
-    @property
-    def task_id(self):
-        """Get the current train task id."""
-        return self._task_id
+    @abstractmethod
+    def _step(self, batch: tuple[Tensor, TensorFactors]) -> StepResult:
+        ...
 
-    @task_id.setter
-    def task_id(self, value):
-        """Set the current train task id."""
-        self._task_id = value
+    @abstractmethod
+    def forward(self, x: Tensor) -> T:
+        ...
 
+    @abstractmethod
+    def configure_optimizers(self) -> OptimizerLRScheduler:
+        ...
+
+    @torch.no_grad()
+    @abstractmethod
+    def classify(self, x: Tensor) -> Tensor:
+        ...
+
+    @override
     def training_step(self, batch, batch_idx):
         """Perform a training step."""
         return self._step(batch)
 
+    @override
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         """Perform a validation step."""
         return self._step(batch)
 
+    @override
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         """Perform a test step."""
         return self._step(batch)
 
     def add_exemplar(self, exemplar: Exemplar):
-        """Add an exemplar to the buffer."""
+        """Add an exemplar to the buffer.
+        Page 4 "Our implementation and training objective"
+        """
         self._buffer.append(exemplar)
 
     def get_current_task_exemplars(self) -> list[Exemplar]:
@@ -83,13 +109,14 @@ class ContinualModule(pl.LightningModule):
         )
 
 
-class ContrastiveClassifier(ContinualModule):
+class ContrastiveClassifier(ContinualModule[Tensor]):
     """A contrastive classifier based on SimCLR."""
 
     def __init__(
         self,
         train_iters_per_epoch,
         backbone: str = "resnet18",
+        # TODO: hardcoded to idsprites img_size?
         out_dim: int = 128,
         optimizer: str = "adam",
         schedule_lr: bool = True,
@@ -124,8 +151,15 @@ class ContrastiveClassifier(ContinualModule):
     def forward(self, x):
         return self.backbone(x)
 
-    def info_nce_loss(self, features1, features2, labels1, labels2):
+    def info_nce_loss(
+        self,
+        features1: Tensor,
+        features2: Tensor,
+        labels1: Tensor,
+        labels2: Tensor,
+    ):
         """Compute the InfoNCE loss.
+        See https://paperswithcode.com/method/infonce
         Args:
             features1: A batch of features.
             features2: A batch of features.
@@ -163,7 +197,7 @@ class ContrastiveClassifier(ContinualModule):
         logits = logits / self.hparams.loss_temperature
         return F.cross_entropy(logits, labels)
 
-    def balance_batch(self, features, labels):
+    def balance_batch(self, features: Tensor, labels: Tensor):
         """Balance the batch by undersampling the majority classes."""
 
         min_examples_per_class = min(torch.unique(labels, return_counts=True)[1])
@@ -241,6 +275,7 @@ class ContrastiveClassifier(ContinualModule):
 
     def _step(self, batch):
         x, y = batch
+        print(type(self).__name__, '_step', type(x), type(y))
         x = self.backbone(x)
         y = y.shape_id
         loss1 = self.info_nce_loss(x, x, y, y)
@@ -270,7 +305,7 @@ class ContrastiveClassifier(ContinualModule):
         return torch.argmax(torch.matmul(x_hat, buffer.T), dim=1)
 
 
-class SupervisedClassifier(ContinualModule):
+class SupervisedClassifier(ContinualModule[Tensor]):
     """A supervised classification model."""
 
     def __init__(
@@ -301,13 +336,27 @@ class SupervisedClassifier(ContinualModule):
         return {"loss": loss, "accuracy": (y_hat.argmax(dim=1) == y).float().mean()}
 
     @torch.no_grad()
-    def classify(self, x: torch.Tensor):
+    def classify(self, x: Tensor):
         """Classify the input."""
         return self.forward(x).argmax(dim=1)
 
 
-class Regressor(ContinualModule):
-    """A model that combines a parameter regressor and differentiable affine transforms."""
+class ContinualReconstructor(ContinualModule, Generic[T], ABC):
+    @abstractmethod
+    def get_reconstruction(self, x: Tensor) -> Tensor:
+        ...
+
+
+class Regressor(ContinualReconstructor[tuple[Tensor, Tensor]]):
+    """A model that combines a parameter regressor and
+    differentiable affine transforms.
+    """
+
+    backbone: nn.Module
+    """The localization net that learns affine transformations
+    that normalize the input (using an affine grid).
+    See https://youtu.be/25dO4fLhEMY?t=368
+    """
 
     def __init__(
         self,
@@ -328,6 +377,7 @@ class Regressor(ContinualModule):
         self.buffer_chunk_size = buffer_chunk_size
         self.mask_n_theta_elements = mask_n_theta_elements
 
+    @override
     def configure_optimizers(self):
         """Configure the optimizers."""
         return torch.optim.Adam(
@@ -336,25 +386,41 @@ class Regressor(ContinualModule):
             ]
         )
 
+    @override
     def forward(self, x):
-        """Perform the forward pass."""
-        theta = self.backbone(x).view(-1, 2, 3)
+        """Page 2, figure 1 in paper."""
+        print("x.size:", x.size())
+        print("backbone(x).size:", self.backbone(x).size())
 
-        grid = F.affine_grid(theta, x.size(), align_corners=False)
+        # Equivariant network
+        theta_hat = self.backbone(x).view(-1, 2, 3)
+        print("theta_hat.size:", theta_hat.size())
+        # Normalization module
+        # TODO: replace with non-affine transform learning
+        grid = F.affine_grid(
+            theta_hat,
+            x.size(),  # type: ignore
+            align_corners=False,
+        )
+        # 'x_hat' not used for training, only for getting the reconstruction
         x_hat = F.grid_sample(x, grid, padding_mode="border", align_corners=False)
+        print("x_hat.size:", x_hat.size())
+        return x_hat, theta_hat
 
-        return x_hat, theta
-
+    @override
     def get_reconstruction(self, x):
         """Get the reconstruction."""
         return self.forward(x)[0]
 
+    @override
     def _step(self, batch):
         """Perform a training or validation step."""
-        x, y = batch
+        x, factors = batch
+        #
         _, theta_hat = self.forward(x)
-        theta = self.convert_parameters_to_matrix(y)
-        if self.mask_n_theta_elements > 0:
+        # Ground truth transformation matrix
+        theta = self.convert_parameters_to_matrix(factors)
+        if self.mask_n_theta_elements > 0:  # default: 0 => noop
             mask = torch.ones_like(theta)
             indices = torch.randperm(self.num_parameters)[: self.mask_n_theta_elements]
             rows, cols = indices // mask.shape[-1], indices % mask.shape[-1]
@@ -364,8 +430,9 @@ class Regressor(ContinualModule):
         loss = F.mse_loss(theta, theta_hat)
         return {"loss": loss}
 
+    @override
     @torch.no_grad()
-    def classify(self, x: torch.Tensor):
+    def classify(self, x: Tensor):
         """Classify the input."""
         x_hat = self.get_reconstruction(x).unsqueeze(1).detach()
         buffer = torch.stack([torch.from_numpy(img) for img in self._buffer])
@@ -405,7 +472,7 @@ class Regressor(ContinualModule):
             buffer[:, :, min_y : max_y + 1, min_x : max_x + 1],
         )
 
-    def convert_parameters_to_matrix(self, factors):
+    def convert_parameters_to_matrix(self, factors: TensorFactors):
         """Convert the ground truth factors to a transformation matrix.
         The matrix maps from an arbitrary image (defined by factors) to the canonical representation.
         Args:
@@ -445,12 +512,13 @@ class Regressor(ContinualModule):
 
         return transform_matrix[:, :2, :]
 
-    def batched_eye(self, batch_size):
+    @staticmethod
+    def batched_eye(batch_size):
         """Create a batch of identity matrices."""
         return torch.eye(3, dtype=torch.float).unsqueeze(0).repeat(batch_size, 1, 1)
 
 
-class Autoencoder(ContinualModule):
+class Autoencoder(ContinualReconstructor[Tensor]):
     """A model that uses an autoencoder as the normalization network."""
 
     def __init__(
@@ -490,6 +558,7 @@ class Autoencoder(ContinualModule):
         self.buffer_chunk_size = buffer_chunk_size
         self.decoder = Decoder(channels=channels, out_channels=in_channels)
 
+    @override
     def configure_optimizers(self):
         """Configure the optimizers."""
         return torch.optim.Adam(
@@ -499,6 +568,7 @@ class Autoencoder(ContinualModule):
             ]
         )
 
+    @override
     def forward(self, x):
         """Perform the forward pass."""
         z = self.backbone(x).view(
@@ -509,10 +579,12 @@ class Autoencoder(ContinualModule):
         )
         return self.decoder(z)
 
+    @override
     def get_reconstruction(self, x):
         """Get the reconstruction."""
         return self.forward(x)
 
+    @override
     def _step(self, batch):
         """Perform a training or validation step."""
         x, y = batch
@@ -524,8 +596,9 @@ class Autoencoder(ContinualModule):
             "loss": F.mse_loss(exemplars, x_hat),
         }
 
+    @override
     @torch.no_grad()
-    def classify(self, x: torch.Tensor):
+    def classify(self, x: Tensor):
         """Classify the input."""
         x_hat = self.get_reconstruction(x).unsqueeze(1).detach()
         buffer = torch.stack([torch.from_numpy(img) for img in self._buffer]).to(

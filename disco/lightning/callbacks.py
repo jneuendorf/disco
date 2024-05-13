@@ -1,6 +1,6 @@
 """Lightning callbacks."""
 
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 import lightning.pytorch as pl
 import numpy as np
@@ -10,7 +10,10 @@ from lightning.pytorch.utilities.types import STEP_OUTPUT
 import time
 from torch.utils.data import Subset
 
+from disco.lightning.modules import ContinualModule, ContinualReconstructor
 from disco.visualization import draw_batch, draw_batch_and_reconstructions
+
+Stage = Literal["train", "val", "test"]
 
 
 class VisualizationCallback(Callback):
@@ -30,7 +33,7 @@ class VisualizationCallback(Callback):
         self._num_classifications = num_classifications
 
     def on_test_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self, trainer: pl.Trainer, pl_module: ContinualReconstructor
     ) -> None:
         """Show the exemplars and the corresponding reconstructions."""
         self.log_reconstructions(
@@ -51,7 +54,7 @@ class VisualizationCallback(Callback):
     def on_test_batch_end(
         self,
         trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
+        pl_module: ContinualReconstructor,
         outputs: Optional[STEP_OUTPUT],
         batch: Any,
         batch_idx: int,
@@ -67,23 +70,24 @@ class VisualizationCallback(Callback):
 
     @staticmethod
     @torch.no_grad()
-    def log_reconstructions(pl_module, batch, name, num_imgs):
+    def log_reconstructions(pl_module: ContinualReconstructor, batch, name, num_imgs):
         """Log images and reconstructions"""
         batch = torch.from_numpy(np.stack(batch[:num_imgs]))
         batch = batch.to(pl_module.backbone)
         x_hat = pl_module.get_reconstruction(batch).detach().cpu().numpy()
         images = draw_batch_and_reconstructions(batch, x_hat, save=False)
-        pl_module.logger.log_image(name, images=[images])
+        if logger := pl_module.logger is not None:
+            logger.log_image(name, images=[images])
 
     @staticmethod
     @torch.no_grad()
-    def log_batch(pl_module, batch):
+    def log_batch(pl_module: pl.LightningModule, batch):
         images = draw_batch(np.array(batch), save=False)
         pl_module.logger.log_image("current_task_exemplars", images=[images])
 
     @staticmethod
     @torch.no_grad()
-    def log_classification(pl_module, batch, name, num_imgs):
+    def log_classification(pl_module: ContinualReconstructor, batch, name, num_imgs):
         x, y = batch
         x = x.to(pl_module.backbone)
         y = y.to(pl_module.backbone)
@@ -112,7 +116,7 @@ class LoggingCallback(Callback):
         self.test_start_time = None
 
     def on_train_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self, trainer: pl.Trainer, pl_module: ContinualModule
     ) -> None:
         dataset = trainer.train_dataloader.dataset
         if isinstance(dataset, Subset):
@@ -128,7 +132,7 @@ class LoggingCallback(Callback):
         self.train_start_time = time.time()
 
     def on_train_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self, trainer: pl.Trainer, pl_module: ContinualModule
     ) -> None:
         if trainer.current_epoch == trainer.max_epochs - 1:
             elapsed_min = (time.time() - self.train_start_time) / 60
@@ -137,7 +141,7 @@ class LoggingCallback(Callback):
             print(f"Training time per task: {elapsed_min:.2f}m")
 
     def on_validation_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self, trainer: pl.Trainer, pl_module: ContinualModule
     ) -> None:
         self.train_val_time = time.time()
         print(
@@ -147,14 +151,14 @@ class LoggingCallback(Callback):
         )
 
     def on_validation_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self, trainer: pl.Trainer, pl_module: ContinualModule
     ) -> None:
         if trainer.current_epoch == trainer.max_epochs - 1:
             elapsed_min = (time.time() - self.train_val_time) / 60
             pl_module.log("val/time_per_task", elapsed_min)
             print(f"Validation time per task: {elapsed_min:.2f}m")
 
-    def on_test_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_test_start(self, trainer: pl.Trainer, pl_module: ContinualModule) -> None:
         print(
             f"Task {pl_module.task_id} testing: "
             f"{len(trainer.test_dataloaders)} batches, "
@@ -190,7 +194,7 @@ class MetricsCallback(Callback):
     def on_train_batch_end(
         self,
         trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
+        pl_module: ContinualModule,
         outputs,
         batch,
         batch_idx: int,
@@ -204,7 +208,7 @@ class MetricsCallback(Callback):
     def on_validation_batch_end(
         self,
         trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
+        pl_module: ContinualModule,
         outputs,
         batch,
         batch_idx: int,
@@ -218,7 +222,7 @@ class MetricsCallback(Callback):
     def on_test_batch_end(
         self,
         trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
+        pl_module: ContinualModule,
         outputs,
         batch,
         batch_idx: int,
@@ -229,7 +233,7 @@ class MetricsCallback(Callback):
             self._log_accuracy(batch, pl_module, "test")
         pl_module.log_dict({f"test/{k}": v.item() for k, v in outputs.items()})
 
-    def _log_accuracy(self, batch, pl_module, stage):
+    def _log_accuracy(self, batch, pl_module: ContinualModule, stage: Stage):
         x, y = batch
         accuracy = (y.shape_id == pl_module.classify(x)).float().mean().item()
         pl_module.log_dict({f"{stage}/accuracy": accuracy})

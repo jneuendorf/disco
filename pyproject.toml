@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["memray", "pytest", "torchmetrics"]
+dev = ["memray", "pytest", "torchmetrics", "typing_extensions"]
 
 [tool.hatch.build]
 include = ["disco"]

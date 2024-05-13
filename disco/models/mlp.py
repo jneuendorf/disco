@@ -1,4 +1,4 @@
-"""A simple multi-layer perceptron.""" ""
+"""A simple multi-layer perceptron."""
 from torch import nn
 
 
